@@ -1,0 +1,142 @@
+---
+title: "Funnel Analysis"
+author: "Bahareh Jozranjbar"
+output: word_document
+---
+```{r setup, include=FALSE}
+library(ggplot2)
+library(dplyr)
+library(survival)
+library(markovchain)
+library(tidyr)
+library(survminer)
+library(tibble)
+library(ChannelAttribution)
+library(reshape2)
+library(igraph)  # For better Markov chain visualization
+```
+
+## Funnel Drop-Off Analysis
+```{r}
+# More natural funnel data
+set.seed(123)
+funnel_data <- data.frame(
+  step = c("Landing Page", "Sign-Up Form", "Email Verification", "Profile Setup", "Final Confirmation"),
+  users = c(1243, 876, 652, 479, 392)
+)
+
+# Calculate drop-off rates
+funnel_data <- funnel_data %>%
+  mutate(
+    conversion_rate = round((users / first(users)) * 100, 1),
+    drop_off_rate = c(NA, round(100 - (users[-1] / users[-length(users)] * 100), 1))
+  )
+
+# Funnel visualization
+p1 <- ggplot(funnel_data, aes(x = reorder(step, -users), y = users, fill = step)) +
+  geom_bar(stat = "identity", width = 0.6, color = "black") +
+  geom_text(aes(label = paste0(conversion_rate, "%")), vjust = -2, size = 4, color = "white") +
+  labs(title = "Funnel Analysis: Drop-Off at Each Step",
+       subtitle = "Tracking user progression through key touchpoints",
+       x = "Funnel Step", y = "Number of Users") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 24, color = "white", margin = margin(b = 50)),
+    plot.subtitle = element_text(size = 18, color = "white", margin = margin(b = 30)),
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "white"),
+    axis.text.y = element_text(color = "white"),
+    axis.title = element_text(size = 18, color = "white"),
+    legend.title = element_text(color = "white"),
+    legend.text = element_text(color = "white")
+  )
+
+ggsave("funnel_analysis.png", p1, bg = "transparent", width = 9, height = 7, dpi = 300)
+```
+
+## Markov Attribution Model: Identifying Key Funnel Steps
+```{r}
+# Sample transition data
+set.seed(126)
+transitions <- data.frame(
+  from = c("Landing Page", "Landing Page", "Sign-Up Form", "Sign-Up Form", "Email Verification", "Profile Setup"),
+  to = c("Sign-Up Form", "Exit", "Email Verification", "Exit", "Profile Setup", "Final Confirmation"),
+  count = c(512, 367, 405, 298, 263, 241)
+)
+
+transition_matrix <- transitions %>%
+  spread(to, count, fill = 0) %>%
+  column_to_rownames(var = "from") %>%
+  as.matrix()
+
+valid_states <- intersect(rownames(transition_matrix), colnames(transition_matrix))
+transition_matrix <- transition_matrix[valid_states, valid_states]
+transition_matrix <- prop.table(transition_matrix + 1, 1)
+
+markov_model <- new("markovchain", transitionMatrix = transition_matrix, name = "User Journey")
+
+png("markov_model.png", bg = "transparent", width = 800, height = 500, res = 150)
+plot(markov_model, main = "Markov Model: User Path Probabilities", col.main = "white")
+dev.off()
+```
+
+## Survival Analysis: Estimating Drop-Off Probability Over Time
+```{r}
+set.seed(123)
+user_data <- data.frame(
+  user_id = 1:500,
+  time_in_funnel = sample(1:30, 500, replace = TRUE),
+  completed_funnel = sample(c(1, 0), 500, replace = TRUE, prob = c(0.35, 0.65))
+)
+
+surv_fit <- survfit(Surv(time_in_funnel, completed_funnel) ~ 1, data = user_data)
+
+p2 <- ggsurvplot(
+  surv_fit, risk.table = TRUE, ggtheme = theme_minimal(),
+  title = "Survival Curve: Likelihood of Staying in Funnel",
+  xlab = "Time in Funnel (Days)",
+  ylab = "Probability of Remaining",
+  surv.median.line = "hv"
+)
+
+p2$plot <- p2$plot +
+  theme(
+    plot.title = element_text(size = 24, color = "white", margin = margin(b = 50)),
+    axis.text.x = element_text(color = "white"),
+    axis.text.y = element_text(color = "white"),
+    axis.title.x = element_text(size = 18, color = "white"),
+    axis.title.y = element_text(size = 18, color = "white"),
+    legend.title = element_text(color = "white"),
+    legend.text = element_text(color = "white")
+  )
+
+ggsave("survival_analysis.png", p2$plot, bg = "transparent", width = 9, height = 7, dpi = 300)
+```
+
+## Behavioral Segmentation: Comparing Drop-Offs Between User Groups
+```{r}
+set.seed(124)
+segment_data <- data.frame(
+  step = rep(c("Landing Page", "Sign-Up Form", "Email Verification", "Profile Setup", "Final Confirmation"), 2),
+  users = c(642, 495, 437, 384, 329, 621, 401, 285, 198, 157),
+  segment = rep(c("Premium Users", "Free Users"), each = 5)
+)
+
+p4 <- ggplot(segment_data, aes(x = reorder(step, -users), y = users, fill = segment)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.6, color = "black") +
+  geom_text(aes(label = users), vjust = -2, size = 4, color = "white", position = position_dodge(width = 0.6)) +
+  labs(title = "Funnel Analysis by User Segment",
+       subtitle = "Comparing retention across different user groups",
+       x = "Funnel Step", y = "Number of Users", fill = "User Segment") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 24, color = "white", margin = margin(b = 50)),
+    plot.subtitle = element_text(size = 18, color = "white", margin = margin(b = 30)),
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "white"),
+    axis.text.y = element_text(color = "white"),
+    axis.title = element_text(size = 18, color = "white"),
+    legend.title = element_text(color = "white"),
+    legend.text = element_text(color = "white")
+  )
+
+ggsave("segmentation_analysis.png", p4, bg = "transparent", width = 9, height = 7, dpi = 300)
+```
